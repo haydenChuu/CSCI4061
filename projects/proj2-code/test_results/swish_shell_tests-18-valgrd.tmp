@@ -1,0 +1,6 @@
+==16573== Memcheck, a memory error detector
+==16573== Copyright (C) 2002-2017, and GNU GPL'd, by Julian Seward et al.
+==16573== Using Valgrind-3.18.1 and LibVEX; rerun with -h for copyright info
+==16573== Command: ./swish
+==16573== Parent PID: 16450
+==16573== 

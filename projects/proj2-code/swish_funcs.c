@@ -33,7 +33,7 @@ int tokenize(char *s, strvec_t *tokens) {
     if (token == NULL) {
         printf("Empty string");
     }
-    
+
     while (token != NULL) {
         if (strvec_add(tokens, token) != 0) {
             printf("Failed to add token to string vector");

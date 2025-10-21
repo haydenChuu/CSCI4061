@@ -24,23 +24,6 @@ int tokenize(char *s, strvec_t *tokens) {
     // Use the strtok() function to accomplish this
     // Add each token to the 'tokens' parameter (a string vector)
     // Return 0 on success, -1 on error
-    if (tokens == NULL) {
-        printf("No string vector");
-        return -1;
-    }
-
-    char* token = strtok(s, " ");
-    if (token == NULL) {
-        printf("Empty string");
-    }
-
-    while (token != NULL) {
-        if (strvec_add(tokens, token) != 0) {
-            printf("Failed to add token to string vector");
-            return -1;
-        }
-        token = strtok(NULL, " ");
-    }
     return 0;
 }
 

@@ -59,6 +59,12 @@ int main(int argc, char **argv) {
         if (strcmp(first_token, "pwd") == 0) {
             // TODO Task 1: Print the shell's current working directory
             // Use the getcwd() system call
+            // CMD_LEN 512
+            if (getcwd(cmd, CMD_LEN) == NULL) {
+                perror("getcwd");
+            } else {
+                printf("%s\n", cmd);
+            }
         }
 
         else if (strcmp(first_token, "cd") == 0) {
@@ -67,6 +73,20 @@ int main(int argc, char **argv) {
             // If the user supplied an argument (token at index 1), change to that directory
             // Otherwise, change to the home directory by default
             // This is available in the HOME environment variable (use getenv())
+            char *arg = strvec_get(&tokens, 1);
+            if (arg != NULL) {
+                if (chdir(arg) != 0) {
+                    perror("chdir");
+                }
+            } else {
+                char *home = getenv("HOME");
+                if (home == NULL) {
+                    printf("Error getting HOME directory");
+                }
+                if (chdir(home) != 0) {
+                    perror("chdir");
+                }
+            }
         }
 
         else if (strcmp(first_token, "exit") == 0) {
@@ -127,6 +147,21 @@ int main(int argc, char **argv) {
             //   1. Use fork() to spawn a child process
             //   2. Call run_command() in the child process
             //   2. In the parent, use waitpid() to wait for the program to exit
+            int status;
+            pid_t pid = fork();
+            if (pid < 0) {
+                perror("fork failed");
+            } else if (pid == 0) {
+                if (run_command(&tokens) == -1) {
+                    _exit(1);
+                }
+            } else {
+                if (waitpid(pid, &status, 0) == -1) {
+                    perror("waidpid");
+                }
+            }
+
+
 
             // TODO Task 4: Set the child process as the target of signals sent to the terminal
             // via the keyboard.

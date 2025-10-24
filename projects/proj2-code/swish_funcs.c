@@ -29,7 +29,7 @@ int tokenize(char *s, strvec_t *tokens) {
         return -1;
     }
 
-    char* token = strtok(s, " ");
+    char *token = strtok(s, " ");
     if (token == NULL) {
         printf("Empty string");
     }
@@ -59,6 +59,15 @@ int run_command(strvec_t *tokens) {
     // Use dup2() to redirect stdin (<), stdout (> or >>)
     // DO NOT pass redirection operators and file names to exec()'d program
     // E.g., "ls -l > out.txt" should be exec()'d with strings "ls", "-l", NULL
+
+    // TODO Task 4: You need to do two items of setup before exec()'ing
+    // 1. Restore the signal handlers for SIGTTOU and SIGTTIN to their defaults.
+    // The code in main() within swish.c sets these handlers to the SIG_IGN value.
+    // Adapt this code to use sigaction() to set the handlers to the SIG_DFL value.
+    // 2. Change the process group of this process (a child of the main shell).
+    // Call getpid() to get its process ID then call setpgid() and use this process
+    // ID as the value for the new process group ID
+
     if (tokens == NULL || tokens->length == 0) {
         return -1;
     }
@@ -78,7 +87,7 @@ int run_command(strvec_t *tokens) {
         stop_index = append_op_index;
     }
 
-    char* args[MAX_ARGS];
+    char *args[MAX_ARGS];
     int args_counter = stop_index;
 
     if (args_counter >= MAX_ARGS) {
@@ -93,7 +102,7 @@ int run_command(strvec_t *tokens) {
     args[args_counter] = NULL;
 
     if (input_op_index != -1) {
-        char* infile = strvec_get(tokens, input_op_index + 1);
+        char *infile = strvec_get(tokens, input_op_index + 1);
         int input_fd = open(infile, O_RDONLY);
         if (input_fd < 0) {
             perror("Failed to open input file");
@@ -108,7 +117,7 @@ int run_command(strvec_t *tokens) {
     }
 
     if (output_op_index != -1) {
-        char* outfile = strvec_get(tokens, output_op_index + 1);
+        char *outfile = strvec_get(tokens, output_op_index + 1);
         int output_fd = open(outfile, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
         if (output_fd < 0) {
             perror("Failed to open output file");
@@ -121,7 +130,7 @@ int run_command(strvec_t *tokens) {
         }
         close(output_fd);
     } else if (append_op_index != -1) {
-        char* outfile = strvec_get(tokens, append_op_index + 1);
+        char *outfile = strvec_get(tokens, append_op_index + 1);
         int output_fd = open(outfile, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR);
         if (output_fd < 0) {
             perror("Failed to open output file");
@@ -135,18 +144,28 @@ int run_command(strvec_t *tokens) {
         close(output_fd);
     }
 
-    if (execvp(args[0],args) == -1) {
-        perror("exec");
+    struct sigaction sac;
+    sac.sa_handler = SIG_DFL;
+    if (sigemptyset(&sac.sa_mask) == -1) {
+        perror("sigemptyset");
+        return -1;
+    }
+    sac.sa_flags = 0;
+    if (sigaction(SIGTTIN, &sac, NULL) == -1 || sigaction(SIGTTOU, &sac, NULL) == -1) {
+        perror("sigaction");
         return -1;
     }
 
-    // TODO Task 4: You need to do two items of setup before exec()'ing
-    // 1. Restore the signal handlers for SIGTTOU and SIGTTIN to their defaults.
-    // The code in main() within swish.c sets these handlers to the SIG_IGN value.
-    // Adapt this code to use sigaction() to set the handlers to the SIG_DFL value.
-    // 2. Change the process group of this process (a child of the main shell).
-    // Call getpid() to get its process ID then call setpgid() and use this process
-    // ID as the value for the new process group ID
+    pid_t current_pid = getpid();
+    if (setpgid(current_pid, current_pid) == -1) {
+        perror("setpgid");
+        return -1;
+    }
+
+    if (execvp(args[0], args) == -1) {
+        perror("exec");
+        return -1;
+    }
 
     return 0;
 }
@@ -170,6 +189,72 @@ int resume_job(strvec_t *tokens, job_list_t *jobs, int is_foreground) {
     // 3. Make sure to modify the 'status' field of the relevant job list entry to BACKGROUND
     //    (as it was STOPPED before this)
 
+    if (tokens == NULL || tokens->length != 2) {
+        printf("Failed due to empty tokens or incorrect format");
+        return -1;
+    }
+
+    int job_index;
+    char *second_token = strvec_get(tokens, 1);
+    if (second_token == NULL) {
+        printf("Failed to strvec_get\n");
+        return -1;
+    }
+    if (sscanf(second_token, "%d", &job_index) != 1) {
+        printf("Failed to sscanf\n");
+        return -1;
+    }
+
+    job_t *current_process = job_list_get(jobs, job_index);
+    if (current_process == NULL) {
+        fprintf(stderr, "Job index out of bounds\n");
+        return -1;
+    }
+
+    if (current_process->status != STOPPED) {
+        printf("Failed due to attempt to resume not stopped process\n");
+        return -1;
+    }
+
+    pid_t stopped_pid = current_process->pid;
+    if (is_foreground == 1) {
+        if (tcsetpgrp(STDIN_FILENO, stopped_pid) == -1) {
+            perror("Failed to tcsetpgrp current process");
+            return -1;
+        }
+
+        if (kill(-stopped_pid, SIGCONT) == -1) {
+            perror("Failed to kill");
+            return -1;
+        }
+
+        int status;
+        if (waitpid(stopped_pid, &status, WUNTRACED) == -1) {
+            perror("Failed to waitpid for child");
+            return -1;
+        }
+
+        if (!(WIFSTOPPED(status))) {
+            if (job_list_remove(jobs, job_index) == -1) {
+                printf("Failed to job_list_remove\n");
+                return -1;
+            }
+        }
+
+        // check later cause i moved processes
+        pid_t current_pid = getpid();
+        if (tcsetpgrp(STDIN_FILENO, current_pid) == -1) {
+            perror("Failed to tcsetpgrp current process");
+            return -1;
+        }
+        return 1;
+    } else {
+        if (kill(-stopped_pid, SIGCONT) == -1) {
+            perror("Failed to kill");
+            return -1;
+        }
+        current_process->status = BACKGROUND;
+    }
     return 0;
 }
 
@@ -181,6 +266,46 @@ int await_background_job(strvec_t *tokens, job_list_t *jobs) {
     // 3. Use waitpid() to wait for the job to terminate, as you have in resume_job() and main().
     // 4. If the process terminates (is not stopped by a signal) remove it from the jobs list
 
+    if (tokens == NULL || tokens->length != 2) {
+        printf("Failed due to empty tokens or incorrect format\n");
+        return -1;
+    }
+
+    int job_index;
+    char *second_token = strvec_get(tokens, 1);
+    if (second_token == NULL) {
+        printf("Failed to strvec_get\n");
+        return -1;
+    }
+
+    if (sscanf(second_token, "%d", &job_index) != 1) {
+        printf("Failed to sscanf\n");
+        return -1;
+    }
+
+    job_t *current_process = job_list_get(jobs, job_index);
+    if (current_process == NULL) {
+        fprintf(stderr, "Job index out of bounds\n");
+        return -1;
+    }
+
+    if (current_process->status != BACKGROUND) {
+        fprintf(stderr, "Job index is for stopped process not background process\n");
+        return -1;
+    }
+
+    pid_t background_pid = current_process->pid;
+    int status;
+    if (waitpid(background_pid, &status, WUNTRACED) == -1) {
+        perror("Failed to waitpid for child");
+        return -1;
+    }
+
+    if (WIFSTOPPED(status)) {
+        current_process->status = STOPPED;
+    } else {
+        job_list_remove(jobs, job_index);
+    }
     return 0;
 }
 
@@ -193,6 +318,28 @@ int await_all_background_jobs(job_list_t *jobs) {
     //    next step (don't attempt to remove it while iterating through the list).
     // 4. Remove all background jobs (which have all just terminated) from jobs list.
     //    Use the job_list_remove_by_status() function.
+    for (int job_index = 0; job_index < jobs->length; job_index++) {
+        job_t *current_process = job_list_get(jobs, job_index);
+        if (current_process == NULL) {
+            printf("Failed to job_list_get\n");
+            return -1;
+        }
 
+        if (current_process->status != BACKGROUND) {
+            continue;
+        }
+
+        pid_t background_pid = current_process->pid;
+        int status;
+        if (waitpid(background_pid, &status, WUNTRACED) == -1) {
+            perror("Failed to waitpid for child");
+            return -1;
+        }
+
+        if (WIFSTOPPED(status)) {
+            current_process->status = STOPPED;
+        }
+    }
+    job_list_remove_by_status(jobs, BACKGROUND);
     return 0;
 }

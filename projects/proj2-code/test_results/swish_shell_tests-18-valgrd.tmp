@@ -1,6 +1,0 @@
-==21892== Memcheck, a memory error detector
-==21892== Copyright (C) 2002-2017, and GNU GPL'd, by Julian Seward et al.
-==21892== Using Valgrind-3.18.1 and LibVEX; rerun with -h for copyright info
-==21892== Command: ./swish
-==21892== Parent PID: 21770
-==21892== 

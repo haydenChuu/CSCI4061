@@ -30,7 +30,6 @@ int main(int argc, char **argv) {
     }
 
     strvec_t tokens;
-    strvec_init(&tokens);
     job_list_t jobs;
     job_list_init(&jobs);
     char cmd[CMD_LEN];
@@ -44,6 +43,10 @@ int main(int argc, char **argv) {
         }
         cmd[i] = '\0';
 
+        if (strvec_init(&tokens) == -1) {
+            printf("Failed to initalize string vector");
+            return 1;
+        }
         if (tokenize(cmd, &tokens) != 0) {
             printf("Failed to parse command\n");
             strvec_clear(&tokens);
@@ -54,6 +57,7 @@ int main(int argc, char **argv) {
             printf("%s", PROMPT);
             continue;
         }
+        // error handling
         const char *first_token = strvec_get(&tokens, 0);
 
         if (strcmp(first_token, "pwd") == 0) {
@@ -147,21 +151,6 @@ int main(int argc, char **argv) {
             //   1. Use fork() to spawn a child process
             //   2. Call run_command() in the child process
             //   2. In the parent, use waitpid() to wait for the program to exit
-            int status;
-            pid_t pid = fork();
-            if (pid < 0) {
-                perror("fork failed");
-            } else if (pid == 0) {
-                if (run_command(&tokens) == -1) {
-                    _exit(1);
-                }
-            } else {
-                if (waitpid(pid, &status, 0) == -1) {
-                    perror("waidpid");
-                }
-            }
-
-
 
             // TODO Task 4: Set the child process as the target of signals sent to the terminal
             // via the keyboard.
@@ -187,6 +176,51 @@ int main(int argc, char **argv) {
             //    use waitpid() to interact with the newly spawned child process.
             // 3. Add a new entry to the jobs list with the child's pid, program name,
             //    and status BACKGROUND.
+
+            int status;
+
+            char *last_token = strvec_get(&tokens, tokens.length - 1);
+
+            int is_foreground = 1;
+            if (strcmp(last_token, "&") == 0) {
+                strvec_take(&tokens, tokens.length - 1);
+                is_foreground = 0;
+            }
+
+            pid_t child_pid = fork();
+            if (child_pid < 0) {
+                perror("Failed to fork");
+            } else if (child_pid == 0) {
+                if (run_command(&tokens) == -1) {
+                    _exit(1);
+                }
+            } else {
+                if (is_foreground == 1) {
+                    // race condition Maybe???
+                    if (tcsetpgrp(STDIN_FILENO, child_pid) == -1) {
+                        perror("Failed to tcsetpgrp for child process");
+                    }
+                    if (waitpid(child_pid, &status, WUNTRACED) == -1) {
+                        perror("Failed to waitpid for child");
+                    }
+                    pid_t current_pid = getpid();
+                    if (tcsetpgrp(STDIN_FILENO, current_pid) == -1) {
+                        perror("Failed to tcsetprgrp for current process");
+                    }
+                    if (WIFSTOPPED(status)) {
+                        if (job_list_add(&jobs, child_pid, first_token, STOPPED) == -1) {
+                            printf("Failed to job_list_add");
+                        }
+                        printf("\n");
+                        // return???
+                    }
+                } else {
+                    if (job_list_add(&jobs, child_pid, first_token, BACKGROUND) == -1) {
+                        printf("Failed to job_list_add");
+                        // return???
+                    }
+                }
+            }
         }
 
         strvec_clear(&tokens);
